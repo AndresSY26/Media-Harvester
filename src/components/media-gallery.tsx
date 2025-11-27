@@ -1,30 +1,62 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ImageIcon, VideoIcon, X, ChevronLeft, ChevronRight, Download, CheckSquare, Square, Package, LoaderCircle, Check } from "lucide-react";
+import { ImageIcon, VideoIcon, X, ChevronLeft, ChevronRight, Download, CheckSquare, Square, Package, LoaderCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
-
 type MediaGalleryProps = {
   images: string[];
   videos: string[];
 };
 
+const BATCH_SIZE = 20;
+
 export function MediaGallery({ images, videos }: MediaGalleryProps) {
   const [selectedImage, setSelectedImage] = useState<number | null>(null);
   const [selectedForDownload, setSelectedForDownload] = useState<string[]>([]);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [visibleImagesCount, setVisibleImagesCount] = useState(BATCH_SIZE);
+
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  const visibleImages = images.slice(0, visibleImagesCount);
 
   const hasImages = images.length > 0;
   const hasVideos = videos.length > 0;
   const defaultTab = hasImages ? "images" : "videos";
+  
+  const loadMoreImages = useCallback(() => {
+    setVisibleImagesCount(prevCount => Math.min(prevCount + BATCH_SIZE, images.length));
+  }, [images.length]);
+
+  useEffect(() => {
+    if (observerRef.current) observerRef.current.disconnect();
+
+    observerRef.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && visibleImagesCount < images.length) {
+        loadMoreImages();
+      }
+    });
+
+    if (sentinelRef.current) {
+      observerRef.current.observe(sentinelRef.current);
+    }
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [loadMoreImages, visibleImagesCount, images.length]);
+
 
   const closeModal = useCallback(() => {
     setSelectedImage(null);
@@ -53,6 +85,7 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
   };
   
   const toggleSelectAll = () => {
+    // Logic now applies to all images, not just visible ones
     if (selectedForDownload.length === images.length) {
       setSelectedForDownload([]);
     } else {
@@ -118,12 +151,12 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
     
     return (
         <div
-          key={`${type}-${index}`}
+          key={`${type}-${url}-${index}`}
           className={cn(
             "group relative aspect-square overflow-hidden rounded-lg shadow-lg transition-all duration-300 animate-in fade-in zoom-in-95",
             isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : "hover:scale-105 hover:shadow-xl",
           )}
-          style={{ animationDelay: `${index * 25}ms` }}
+          style={{ animationDelay: `${(index % BATCH_SIZE) * 25}ms` }}
         >
           <div className="absolute top-2 left-2 z-10">
              {type === 'image' && (
@@ -139,7 +172,14 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
              )}
           </div>
           
-          <div onClick={() => type === 'image' && setSelectedImage(index)} className="w-full h-full cursor-pointer">
+          <div onClick={() => {
+              if (type === 'image') {
+                  const globalIndex = images.findIndex(imgUrl => imgUrl === url);
+                  if (globalIndex !== -1) {
+                      setSelectedImage(globalIndex);
+                  }
+              }
+          }} className="w-full h-full cursor-pointer">
             {type === 'image' ? (
               <Image
                 src={url}
@@ -164,7 +204,7 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
             size="icon"
             variant="ghost"
             className="absolute bottom-2 right-2 z-10 h-8 w-8 bg-black/50 text-white backdrop-blur-sm transition-all hover:bg-black/75 hover:scale-110 hover:text-white opacity-0 group-hover:opacity-100"
-            onClick={() => handleDownload(url)}
+            onClick={(e) => { e.stopPropagation(); handleDownload(url); }}
             aria-label="Download"
           >
             <Download className="h-4 w-4"/>
@@ -207,8 +247,14 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
         {hasImages && (
           <TabsContent value="images">
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                  {images.map((url, index) => renderMediaItem(url, 'image', index))}
+                  {visibleImages.map((url, index) => renderMediaItem(url, 'image', index))}
               </div>
+              <div ref={sentinelRef} className="h-10 w-full" />
+               {visibleImagesCount < images.length && (
+                 <div className="flex justify-center items-center py-4">
+                    <LoaderCircle className="animate-spin text-primary" />
+                 </div>
+               )}
           </TabsContent>
         )}
 
@@ -303,3 +349,4 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
     </>
   );
 }
+
