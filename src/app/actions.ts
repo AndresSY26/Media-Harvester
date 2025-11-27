@@ -46,16 +46,35 @@ export async function extractMedia(
     });
     const page = await browser.newPage();
 
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+        const resourceType = request.resourceType();
+        if (['image', 'media', 'stylesheet', 'font', 'other'].includes(resourceType)) {
+            request.abort();
+        } else {
+            request.continue();
+        }
+    });
+
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     );
 
-    await page.goto(url, { waitUntil: "networkidle2" });
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    
+    // Wait for some media to be present to allow scripts to run and populate the DOM
+    try {
+      await page.waitForSelector('img, video, audio', { timeout: 10000 });
+    } catch (e) {
+      console.log("No media tags found within timeout, proceeding anyway.");
+    }
     
     const media = await page.evaluate((pageUrl) => {
         const resolveUrl = (src: string | null): string | null => {
             if (!src) return null;
             try {
+                // Ignore blob URLs as they are not downloadable
+                if (src.startsWith('blob:')) return null;
                 return new URL(src, pageUrl).href;
             } catch (e) {
                 return null;
@@ -109,7 +128,6 @@ export async function extractMedia(
             });
         });
 
-
         return {
             images: Array.from(images),
             videos: Array.from(videos),
@@ -139,7 +157,11 @@ export async function extractMedia(
     console.error(error);
     let errorMessage = "Ha ocurrido un error inesperado al procesar la página.";
     if (error instanceof Error) {
-      errorMessage = error.message;
+      if (error.message.includes('net::ERR_NAME_NOT_RESOLVED')) {
+        errorMessage = 'No se pudo resolver la URL. Por favor, comprueba que el dominio es correcto.';
+      } else {
+        errorMessage = error.message;
+      }
     }
     return {
       message: "Error en la extracción.",
