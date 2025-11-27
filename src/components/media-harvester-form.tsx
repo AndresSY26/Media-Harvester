@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useTransition } from "react";
+import { useActionState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -41,12 +41,6 @@ export function MediaHarvesterForm() {
       });
     }
   }, [state.error, state.timestamp, toast]);
-
-  function onSubmit(data: z.infer<typeof FormSchema>) {
-    const formData = new FormData();
-    formData.append("url", data.url);
-    formAction(formData);
-  }
 
   const renderContent = () => {
     if (isPending) {
@@ -90,7 +84,7 @@ export function MediaHarvesterForm() {
       <Card>
         <CardContent className="p-6">
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col sm:flex-row items-start gap-4">
+            <form action={formAction} className="flex flex-col sm:flex-row items-start gap-4">
               <FormField
                 control={form.control}
                 name="url"
@@ -99,9 +93,10 @@ export function MediaHarvesterForm() {
                     <FormControl>
                       <Input
                         type="url"
+                        name="url"
                         placeholder="https://ejemplo.com/manga/capitulo-1"
                         className="h-12 text-base"
-                        {...field}
+                        defaultValue={field.value}
                       />
                     </FormControl>
                     <FormMessage />
