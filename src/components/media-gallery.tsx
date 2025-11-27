@@ -4,10 +4,13 @@
 import React, { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ImageIcon, VideoIcon, X, ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { ImageIcon, VideoIcon, X, ChevronLeft, ChevronRight, Download, CheckSquare, Square, Package, LoaderCircle, Check } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils";
+
 
 type MediaGalleryProps = {
   images: string[];
@@ -16,6 +19,8 @@ type MediaGalleryProps = {
 
 export function MediaGallery({ images, videos }: MediaGalleryProps) {
   const [selectedImage, setSelectedImage] = useState<number | null>(null);
+  const [selectedForDownload, setSelectedForDownload] = useState<string[]>([]);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const hasImages = images.length > 0;
   const hasVideos = videos.length > 0;
@@ -35,12 +40,58 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
     setSelectedImage((prev) => (prev! - 1 + images.length) % images.length);
   }, [selectedImage, images.length]);
   
-  const handleDownload = useCallback(() => {
-    if (selectedImage === null) return;
-    const imageUrl = images[selectedImage];
-    window.location.href = `/api/proxy-download?url=${encodeURIComponent(imageUrl)}`;
+  const handleDownload = useCallback((url?: string) => {
+    const downloadUrl = url || (selectedImage !== null ? images[selectedImage] : null);
+    if (!downloadUrl) return;
+    window.location.href = `/api/proxy-download?url=${encodeURIComponent(downloadUrl)}`;
   }, [selectedImage, images]);
 
+  const toggleSelection = (url: string) => {
+    setSelectedForDownload(prev => 
+      prev.includes(url) ? prev.filter(u => u !== url) : [...prev, url]
+    );
+  };
+  
+  const toggleSelectAll = () => {
+    if (selectedForDownload.length === images.length) {
+      setSelectedForDownload([]);
+    } else {
+      setSelectedForDownload(images);
+    }
+  };
+
+  const handleBulkDownload = async () => {
+      if (selectedForDownload.length === 0) return;
+      setIsDownloading(true);
+
+      try {
+          const response = await fetch('/api/download-zip', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ urls: selectedForDownload }),
+          });
+
+          if (!response.ok) {
+              throw new Error('Error en la respuesta del servidor al crear el ZIP.');
+          }
+
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'media_harvester_archive.zip';
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          a.remove();
+          setSelectedForDownload([]);
+
+      } catch (error) {
+          console.error("Error al descargar el ZIP:", error);
+      } finally {
+          setIsDownloading(false);
+      }
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -62,54 +113,95 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
   }, [selectedImage, closeModal, showNextImage, showPrevImage]);
 
 
-  const renderMediaItem = (url: string, type: 'image' | 'video', index: number) => (
-    <div
-      key={`${type}-${index}`}
-      className="group relative aspect-square overflow-hidden rounded-lg shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-105 animate-in fade-in zoom-in-95 cursor-pointer"
-      style={{ animationDelay: `${index * 25}ms` }}
-      onClick={() => type === 'image' && setSelectedImage(index)}
-    >
-      {type === 'image' ? (
-        <Image
-          src={url}
-          alt={`Extracted image ${index + 1}`}
-          fill
-          sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
-          className="object-cover"
-          onError={(e) => e.currentTarget.style.display = 'none'}
-        />
-      ) : (
-        <video
-          src={url}
-          controls
-          className="h-full w-full object-cover bg-black"
-          onError={(e) => e.currentTarget.style.display = 'none'}
-        />
-      )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-    </div>
-  );
+  const renderMediaItem = (url: string, type: 'image' | 'video', index: number) => {
+    const isSelected = type === 'image' && selectedForDownload.includes(url);
+    
+    return (
+        <div
+          key={`${type}-${index}`}
+          className={cn(
+            "group relative aspect-square overflow-hidden rounded-lg shadow-lg transition-all duration-300 animate-in fade-in zoom-in-95",
+            isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : "hover:scale-105 hover:shadow-xl",
+          )}
+          style={{ animationDelay: `${index * 25}ms` }}
+        >
+          <div className="absolute top-2 left-2 z-10">
+             {type === 'image' && (
+                <div 
+                  className="w-6 h-6 bg-background/70 backdrop-blur-sm rounded-md flex items-center justify-center cursor-pointer"
+                  onClick={() => toggleSelection(url)}
+                >
+                  <Checkbox 
+                      checked={isSelected}
+                      className="w-4 h-4"
+                  />
+                </div>
+             )}
+          </div>
+          
+          <div onClick={() => type === 'image' && setSelectedImage(index)} className="w-full h-full cursor-pointer">
+            {type === 'image' ? (
+              <Image
+                src={url}
+                alt={`Extracted image ${index + 1}`}
+                fill
+                sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
+                className="object-cover"
+                onError={(e) => e.currentTarget.style.display = 'none'}
+              />
+            ) : (
+              <video
+                src={url}
+                controls
+                className="h-full w-full object-cover bg-black"
+                onError={(e) => e.currentTarget.style.display = 'none'}
+              />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+          </div>
+
+          <Button
+            size="icon"
+            variant="ghost"
+            className="absolute bottom-2 right-2 z-10 h-8 w-8 bg-black/50 text-white backdrop-blur-sm transition-all hover:bg-black/75 hover:scale-110 hover:text-white opacity-0 group-hover:opacity-100"
+            onClick={() => handleDownload(url)}
+            aria-label="Download"
+          >
+            <Download className="h-4 w-4"/>
+          </Button>
+        </div>
+      );
+  }
 
   return (
     <>
       <Tabs defaultValue={defaultTab} className="w-full">
-        <div className="flex justify-center mb-6">
-          <TabsList>
-              {hasImages && (
-                  <TabsTrigger value="images">
-                      <ImageIcon className="mr-2 h-4 w-4" />
-                      Imágenes
-                      <Badge variant="secondary" className="ml-2">{images.length}</Badge>
-                  </TabsTrigger>
-              )}
-              {hasVideos && (
-                  <TabsTrigger value="videos">
-                      <VideoIcon className="mr-2 h-4 w-4" />
-                      Videos
-                      <Badge variant="secondary" className="ml-2">{videos.length}</Badge>
-                  </TabsTrigger>
-              )}
-          </TabsList>
+        <div className="flex justify-between items-center mb-6">
+            <div className="flex-1"/>
+            <TabsList className="flex-shrink-0">
+                {hasImages && (
+                    <TabsTrigger value="images">
+                        <ImageIcon className="mr-2 h-4 w-4" />
+                        Imágenes
+                        <Badge variant="secondary" className="ml-2">{images.length}</Badge>
+                    </TabsTrigger>
+                )}
+                {hasVideos && (
+                    <TabsTrigger value="videos">
+                        <VideoIcon className="mr-2 h-4 w-4" />
+                        Videos
+                        <Badge variant="secondary" className="ml-2">{videos.length}</Badge>
+                    </TabsTrigger>
+                )}
+            </TabsList>
+            <div className="flex-1 flex justify-end">
+                {hasImages && (
+                    <Button onClick={toggleSelectAll} variant="outline">
+                        {selectedForDownload.length === images.length ? <CheckSquare className="mr-2" /> : <Square className="mr-2" />}
+                        {selectedForDownload.length === images.length ? 'Deseleccionar' : 'Seleccionar Todo'}
+                    </Button>
+                )}
+            </div>
         </div>
 
         {hasImages && (
@@ -186,6 +278,26 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
               </Button>
             </>
           )}
+        </div>
+      )}
+
+      {selectedForDownload.length > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-md animate-in slide-in-from-bottom-10">
+          <Card className="shadow-2xl">
+            <CardContent className="p-4 flex items-center justify-between">
+              <p className="font-medium text-sm">
+                <span className="font-bold text-primary">{selectedForDownload.length}</span> imágenes seleccionadas
+              </p>
+              <Button onClick={handleBulkDownload} disabled={isDownloading}>
+                {isDownloading ? (
+                  <LoaderCircle className="animate-spin mr-2" />
+                ) : (
+                  <Package className="mr-2" />
+                )}
+                {isDownloading ? 'Comprimiendo...' : 'Descargar ZIP'}
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       )}
     </>
