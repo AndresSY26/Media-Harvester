@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ImageIcon, VideoIcon, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { ImageIcon, VideoIcon, X, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,12 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
     if (selectedImage === null) return;
     setSelectedImage((prev) => (prev! - 1 + images.length) % images.length);
   }, [selectedImage, images.length]);
+  
+  const handleDownload = useCallback(() => {
+    if (selectedImage === null) return;
+    const imageUrl = images[selectedImage];
+    window.location.href = `/api/proxy-download?url=${encodeURIComponent(imageUrl)}`;
+  }, [selectedImage, images]);
 
 
   useEffect(() => {
@@ -137,14 +143,26 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
             />
           </div>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute top-4 right-4 text-white hover:text-white hover:bg-white/10"
-            onClick={closeModal}
-          >
-            <X className="h-8 w-8" />
-          </Button>
+          <div className="absolute top-4 right-4 flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-white hover:text-white hover:bg-white/10"
+              onClick={(e) => { e.stopPropagation(); handleDownload(); }}
+              aria-label="Download image"
+            >
+              <Download className="h-8 w-8" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-white hover:text-white hover:bg-white/10"
+              onClick={closeModal}
+              aria-label="Close modal"
+            >
+              <X className="h-8 w-8" />
+            </Button>
+          </div>
 
           {images.length > 1 && (
             <>
@@ -153,6 +171,7 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
                 size="icon"
                 className="absolute left-4 top-1/2 -translate-y-1/2 text-white hover:text-white hover:bg-white/10"
                 onClick={(e) => { e.stopPropagation(); showPrevImage(); }}
+                aria-label="Previous image"
               >
                 <ChevronLeft className="h-10 w-10" />
               </Button>
@@ -161,6 +180,7 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
                 size="icon"
                 className="absolute right-4 top-1/2 -translate-y-1/2 text-white hover:text-white hover:bg-white/10"
                 onClick={(e) => { e.stopPropagation(); showNextImage(); }}
+                aria-label="Next image"
               >
                 <ChevronRight className="h-10 w-10" />
               </Button>
@@ -171,4 +191,3 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
     </>
   );
 }
-
