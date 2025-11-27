@@ -1,13 +1,12 @@
 "use client";
 
-import { useFormState } from "react-dom";
+import { useActionState, useEffect, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useEffect, useTransition } from "react";
 import { Wand, LoaderCircle, ImageOff } from "lucide-react";
 
-import { ActionState, extractMedia, MediaResult } from "@/app/actions";
+import { ActionState, extractMedia } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormMessage } from "@/components/ui/form";
@@ -25,8 +24,7 @@ const initialState: ActionState = {
 };
 
 export function MediaHarvesterForm() {
-  const [state, formAction] = useFormState(extractMedia, initialState);
-  const [isPending, startTransition] = useTransition();
+  const [state, formAction, isPending] = useActionState(extractMedia, initialState);
   const { toast } = useToast();
 
   const form = useForm<z.infer<typeof FormSchema>>({
@@ -45,11 +43,9 @@ export function MediaHarvesterForm() {
   }, [state.error, state.timestamp, toast]);
 
   function onSubmit(data: z.infer<typeof FormSchema>) {
-    startTransition(() => {
-      const formData = new FormData();
-      formData.append("url", data.url);
-      formAction(formData);
-    });
+    const formData = new FormData();
+    formData.append("url", data.url);
+    formAction(formData);
   }
 
   const renderContent = () => {
