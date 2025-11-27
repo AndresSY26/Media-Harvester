@@ -1,7 +1,7 @@
 "use server";
 
-import * as cheerio from "cheerio";
 import { z } from "zod";
+import puppeteer from "puppeteer";
 
 const FormSchema = z.object({
   url: z.string().url({ message: "Por favor, introduce una URL válida." }),
@@ -10,6 +10,7 @@ const FormSchema = z.object({
 export type MediaResult = {
   images: string[];
   videos: string[];
+  audios: string[];
 };
 
 export type ActionState = {
@@ -36,100 +37,91 @@ export async function extractMedia(
   }
 
   const { url } = validatedFields.data;
-  let baseUrl: URL;
+  let browser;
 
   try {
-    baseUrl = new URL(url);
-  } catch (error) {
-     return {
-      message: "URL inválida.",
-      error: "La URL proporcionada no es válida.",
-      timestamp: Date.now(),
-    };
-  }
-
-
-  try {
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Cache-Control": "no-cache",
-      },
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
+    const page = await browser.newPage();
 
-    if (!response.ok) {
-      throw new Error(`Error al obtener la URL: ${response.status} ${response.statusText}`);
-    }
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    );
 
-    const html = await response.text();
-    const $ = cheerio.load(html);
+    await page.goto(url, { waitUntil: "networkidle2" });
+    
+    const media = await page.evaluate((pageUrl) => {
+        const resolveUrl = (src: string | null): string | null => {
+            if (!src) return null;
+            try {
+                return new URL(src, pageUrl).href;
+            } catch (e) {
+                return null;
+            }
+        };
 
-    const images = new Set<string>();
-    const videos = new Set<string>();
-
-    const resolveUrl = (src: string | undefined): string | null => {
-      if (!src) return null;
-      try {
-        // Use the URL constructor for robust resolving of relative/absolute paths
-        return new URL(src, baseUrl.href).href;
-      } catch (e) {
-        // Ignore invalid URLs
-        return null;
-      }
-    };
-
-    // Extract images from <img> tags
-    $("img").each((_, element) => {
-      const src = $(element).attr("src") || $(element).attr("data-src");
-      const srcset = $(element).attr("srcset") || $(element).attr("data-srcset");
-      
-      if (src) {
-        const absoluteSrc = resolveUrl(src);
-        if (absoluteSrc) images.add(absoluteSrc);
-      }
-
-      if (srcset) {
-        srcset.split(",").forEach(part => {
-          const urlPart = part.trim().split(/\s+/)[0];
-          const absoluteSrc = resolveUrl(urlPart);
-          if (absoluteSrc) images.add(absoluteSrc);
+        const images = new Set<string>();
+        document.querySelectorAll("img").forEach((img) => {
+            if (img.src) {
+                const absoluteSrc = resolveUrl(img.src);
+                if (absoluteSrc) images.add(absoluteSrc);
+            }
+            if (img.dataset.src) {
+                const absoluteSrc = resolveUrl(img.dataset.src);
+                if (absoluteSrc) images.add(absoluteSrc);
+            }
+            if (img.srcset) {
+                 img.srcset.split(",").forEach(part => {
+                    const urlPart = part.trim().split(/\s+/)[0];
+                    const absoluteSrc = resolveUrl(urlPart);
+                    if (absoluteSrc) images.add(absoluteSrc);
+                });
+            }
         });
-      }
-    });
 
-    // Extract videos from <video> tags
-    $("video").each((_, element) => {
-      const src = $(element).attr("src");
-      const poster = $(element).attr("poster");
+        const videos = new Set<string>();
+        document.querySelectorAll("video").forEach((video) => {
+            if (video.src) {
+                 const absoluteSrc = resolveUrl(video.src);
+                 if (absoluteSrc) videos.add(absoluteSrc);
+            }
+            video.querySelectorAll("source").forEach((source) => {
+                if (source.src) {
+                    const absoluteSrc = resolveUrl(source.src);
+                    if (absoluteSrc) videos.add(absoluteSrc);
+                }
+            });
+        });
+        
+        const audios = new Set<string>();
+        document.querySelectorAll("audio").forEach((audio) => {
+            if (audio.src) {
+                 const absoluteSrc = resolveUrl(audio.src);
+                 if (absoluteSrc) audios.add(absoluteSrc);
+            }
+            audio.querySelectorAll("source").forEach((source) => {
+                if (source.src) {
+                    const absoluteSrc = resolveUrl(source.src);
+                    if (absoluteSrc) audios.add(absoluteSrc);
+                }
+            });
+        });
 
-      if (src) {
-        const absoluteSrc = resolveUrl(src);
-        if (absoluteSrc) videos.add(absoluteSrc);
-      }
-      if (poster) {
-        const absolutePoster = resolveUrl(poster);
-        if (absolutePoster) images.add(absolutePoster); // Posters are images
-      }
-      
-      $(element).find("source").each((_, sourceElement) => {
-         const sourceSrc = $(sourceElement).attr("src");
-         if (sourceSrc) {
-            const absoluteSourceSrc = resolveUrl(sourceSrc);
-            if (absoluteSourceSrc) videos.add(absoluteSourceSrc);
-         }
-      });
-    });
 
-    const imageData = Array.from(images);
-    const videoData = Array.from(videos);
+        return {
+            images: Array.from(images),
+            videos: Array.from(videos),
+            audios: Array.from(audios),
+        };
+    }, url);
 
-    if (imageData.length === 0 && videoData.length === 0) {
+
+    if (media.images.length === 0 && media.videos.length === 0 && media.audios.length === 0) {
       return {
         message: "No se encontraron medios.",
-        data: { images: [], videos: [] },
+        data: { images: [], videos: [], audios: [] },
         timestamp: Date.now(),
       };
     }
@@ -137,20 +129,26 @@ export async function extractMedia(
     return {
       message: "Extracción completada.",
       data: {
-        images: imageData,
-        videos: videoData,
+        images: media.images,
+        videos: media.videos,
+        audios: media.audios,
       },
       timestamp: Date.now(),
     };
   } catch (error) {
+    console.error(error);
     let errorMessage = "Ha ocurrido un error inesperado al procesar la página.";
     if (error instanceof Error) {
-        errorMessage = error.message;
+      errorMessage = error.message;
     }
     return {
       message: "Error en la extracción.",
       error: errorMessage,
       timestamp: Date.now(),
     };
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
   }
 }
