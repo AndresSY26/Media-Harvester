@@ -1,82 +1,116 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Image from "next/image";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ImageIcon, VideoIcon, X, ChevronLeft, ChevronRight, Download, CheckSquare, Square, Package, LoaderCircle } from "lucide-react";
+import { ImageIcon, VideoIcon, X, ChevronLeft, ChevronRight, Download, CheckSquare, Square, Package, LoaderCircle, MusicIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 
+type MediaItem = {
+  type: 'image' | 'video' | 'audio';
+  url: string;
+};
+
 type MediaGalleryProps = {
   images: string[];
   videos: string[];
+  audios: string[];
 };
 
 const BATCH_SIZE = 20;
 
-export function MediaGallery({ images, videos }: MediaGalleryProps) {
-  const [selectedImage, setSelectedImage] = useState<number | null>(null);
+export function MediaGallery({ images, videos, audios }: MediaGalleryProps) {
+  const [selectedMediaIndex, setSelectedMediaIndex] = useState<number | null>(null);
   const [selectedForDownload, setSelectedForDownload] = useState<string[]>([]);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [visibleImagesCount, setVisibleImagesCount] = useState(BATCH_SIZE);
+  const [visibleCount, setVisibleCount] = useState({ images: BATCH_SIZE, videos: BATCH_SIZE, audios: BATCH_SIZE });
+  const [activeTab, setActiveTab] = useState<string>("images");
 
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const observers = useRef<Record<string, IntersectionObserver | null>>({}).current;
+  const sentinels = useRef<Record<string, HTMLDivElement | null>>({}).current;
 
-  const visibleImages = images.slice(0, visibleImagesCount);
+  const allMedia: MediaItem[] = useMemo(() => [
+    ...images.map(url => ({ type: 'image' as const, url })),
+    ...videos.map(url => ({ type: 'video' as const, url })),
+    ...audios.map(url => ({ type: 'audio' as const, url })),
+  ], [images, videos, audios]);
+  
+  const visibleImages = images.slice(0, visibleCount.images);
+  const visibleVideos = videos.slice(0, visibleCount.videos);
+  const visibleAudios = audios.slice(0, visibleCount.audios);
 
   const hasImages = images.length > 0;
   const hasVideos = videos.length > 0;
-  const defaultTab = hasImages ? "images" : "videos";
-  
-  const loadMoreImages = useCallback(() => {
-    setVisibleImagesCount(prevCount => Math.min(prevCount + BATCH_SIZE, images.length));
-  }, [images.length]);
+  const hasAudios = audios.length > 0;
+  const defaultTab = hasImages ? "images" : hasVideos ? "videos" : "audios";
 
   useEffect(() => {
-    if (observerRef.current) observerRef.current.disconnect();
+    setActiveTab(defaultTab);
+  }, [defaultTab]);
 
-    observerRef.current = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && visibleImagesCount < images.length) {
-        loadMoreImages();
-      }
-    });
+  const loadMore = useCallback((type: 'images' | 'videos' | 'audios') => {
+    const mediaList = type === 'images' ? images : type === 'videos' ? videos : audios;
+    setVisibleCount(prev => ({
+      ...prev,
+      [type]: Math.min(prev[type] + BATCH_SIZE, mediaList.length)
+    }));
+  }, [images, videos, audios]);
 
-    if (sentinelRef.current) {
-      observerRef.current.observe(sentinelRef.current);
+  useEffect(() => {
+    Object.keys(observers).forEach(key => observers[key]?.disconnect());
+
+    const createObserver = (type: 'images' | 'videos' | 'audios') => {
+      const mediaList = type === 'images' ? images : type === 'videos' ? videos : audios;
+      return new IntersectionObserver(entries => {
+        if (entries[0].isIntersecting && visibleCount[type] < mediaList.length) {
+          loadMore(type);
+        }
+      });
+    };
+
+    if (hasImages) {
+        observers.images = createObserver('images');
+        if (sentinels.images) observers.images.observe(sentinels.images);
+    }
+    if (hasVideos) {
+        observers.videos = createObserver('videos');
+        if (sentinels.videos) observers.videos.observe(sentinels.videos);
+    }
+     if (hasAudios) {
+        observers.audios = createObserver('audios');
+        if (sentinels.audios) observers.audios.observe(sentinels.audios);
     }
 
     return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-      }
+      Object.keys(observers).forEach(key => observers[key]?.disconnect());
     };
-  }, [loadMoreImages, visibleImagesCount, images.length]);
+  }, [loadMore, visibleCount, hasImages, hasVideos, hasAudios, sentinels, observers, images, videos, audios]);
 
 
   const closeModal = useCallback(() => {
-    setSelectedImage(null);
+    setSelectedMediaIndex(null);
   }, []);
 
-  const showNextImage = useCallback(() => {
-    if (selectedImage === null) return;
-    setSelectedImage((prev) => (prev! + 1) % images.length);
-  }, [selectedImage, images.length]);
+  const showNext = useCallback(() => {
+    if (selectedMediaIndex === null) return;
+    setSelectedMediaIndex((prev) => (prev! + 1) % allMedia.length);
+  }, [selectedMediaIndex, allMedia.length]);
 
-  const showPrevImage = useCallback(() => {
-    if (selectedImage === null) return;
-    setSelectedImage((prev) => (prev! - 1 + images.length) % images.length);
-  }, [selectedImage, images.length]);
+  const showPrev = useCallback(() => {
+    if (selectedMediaIndex === null) return;
+    setSelectedMediaIndex((prev) => (prev! - 1 + allMedia.length) % allMedia.length);
+  }, [selectedMediaIndex, allMedia.length]);
   
   const handleDownload = useCallback((url?: string) => {
-    const downloadUrl = url || (selectedImage !== null ? images[selectedImage] : null);
+    const downloadUrl = url || (selectedMediaIndex !== null ? allMedia[selectedMediaIndex].url : null);
     if (!downloadUrl) return;
     window.location.href = `/api/proxy-download?url=${encodeURIComponent(downloadUrl)}`;
-  }, [selectedImage, images]);
+  }, [selectedMediaIndex, allMedia]);
 
   const toggleSelection = (url: string) => {
     setSelectedForDownload(prev => 
@@ -85,13 +119,24 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
   };
   
   const toggleSelectAll = () => {
-    // Logic now applies to all images, not just visible ones
-    if (selectedForDownload.length === images.length) {
-      setSelectedForDownload([]);
+    const currentMediaUrls = activeTab === 'images' ? images : activeTab === 'videos' ? videos : audios;
+    const otherMediaUrls = 
+        activeTab === 'images' ? [...videos, ...audios] :
+        activeTab === 'videos' ? [...images, ...audios] :
+        [...images, ...videos];
+
+    const currentMediaSelected = currentMediaUrls.every(url => selectedForDownload.includes(url));
+
+    if (currentMediaSelected) {
+      // Deselect all media of the current tab
+      setSelectedForDownload(prev => prev.filter(url => !currentMediaUrls.includes(url)));
     } else {
-      setSelectedForDownload(images);
+      // Select all media of the current tab, preserving selections from other tabs
+      const newSelection = [...new Set([...selectedForDownload, ...currentMediaUrls])];
+      setSelectedForDownload(newSelection);
     }
   };
+
 
   const handleBulkDownload = async () => {
       if (selectedForDownload.length === 0) return;
@@ -128,26 +173,55 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (selectedImage === null) return;
+      if (selectedMediaIndex === null) return;
 
-      if (e.key === "Escape") {
-        closeModal();
-      } else if (e.key === "ArrowRight") {
-        showNextImage();
-      } else if (e.key === "ArrowLeft") {
-        showPrevImage();
-      }
+      if (e.key === "Escape") closeModal();
+      else if (e.key === "ArrowRight") showNext();
+      else if (e.key === "ArrowLeft") showPrev();
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedImage, closeModal, showNextImage, showPrevImage]);
+  }, [selectedMediaIndex, closeModal, showNext, showPrev]);
 
+  const openModal = (type: 'image' | 'video' | 'audio', url: string) => {
+    const index = allMedia.findIndex(item => item.type === type && item.url === url);
+    if (index !== -1) {
+      setSelectedMediaIndex(index);
+    }
+  };
 
-  const renderMediaItem = (url: string, type: 'image' | 'video', index: number) => {
-    const isSelected = type === 'image' && selectedForDownload.includes(url);
+  const selectedMedia = selectedMediaIndex !== null ? allMedia[selectedMediaIndex] : null;
+
+  const renderMediaItem = (url: string, type: 'image' | 'video' | 'audio', index: number) => {
+    const isSelected = selectedForDownload.includes(url);
+    
+    if (type === 'audio') {
+        return (
+            <Card key={`audio-${url}-${index}`} className={cn("group w-full animate-in fade-in zoom-in-95", isSelected && "ring-2 ring-primary ring-offset-2 ring-offset-background")}>
+                <CardContent className="p-4 flex items-center gap-4">
+                     <div 
+                        className="w-6 h-6 bg-background/70 backdrop-blur-sm rounded-md flex items-center justify-center cursor-pointer"
+                        onClick={() => toggleSelection(url)}
+                        >
+                        <Checkbox checked={isSelected} className="w-4 h-4"/>
+                    </div>
+                    <audio src={url} controls className="w-full" />
+                    <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 bg-black/50 text-white backdrop-blur-sm transition-all hover:bg-black/75 hover:scale-110 hover:text-white"
+                        onClick={(e) => { e.stopPropagation(); handleDownload(url); }}
+                        aria-label="Download"
+                    >
+                        <Download className="h-4 w-4"/>
+                    </Button>
+                </CardContent>
+            </Card>
+        )
+    }
     
     return (
         <div
@@ -159,7 +233,6 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
           style={{ animationDelay: `${(index % BATCH_SIZE) * 25}ms` }}
         >
           <div className="absolute top-2 left-2 z-10">
-             {type === 'image' && (
                 <div 
                   className="w-6 h-6 bg-background/70 backdrop-blur-sm rounded-md flex items-center justify-center cursor-pointer"
                   onClick={() => toggleSelection(url)}
@@ -169,17 +242,9 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
                       className="w-4 h-4"
                   />
                 </div>
-             )}
           </div>
           
-          <div onClick={() => {
-              if (type === 'image') {
-                  const globalIndex = images.findIndex(imgUrl => imgUrl === url);
-                  if (globalIndex !== -1) {
-                      setSelectedImage(globalIndex);
-                  }
-              }
-          }} className="w-full h-full cursor-pointer">
+          <div onClick={() => openModal(type, url)} className="w-full h-full cursor-pointer">
             {type === 'image' ? (
               <Image
                 src={url}
@@ -192,7 +257,9 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
             ) : (
               <video
                 src={url}
-                controls
+                muted
+                loop
+                playsInline
                 className="h-full w-full object-cover bg-black"
                 onError={(e) => e.currentTarget.style.display = 'none'}
               />
@@ -212,12 +279,22 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
         </div>
       );
   }
+  
+  const currentMediaUrls = activeTab === 'images' ? images : activeTab === 'videos' ? videos : audios;
+  const isAllSelected = currentMediaUrls.length > 0 && currentMediaUrls.every(url => selectedForDownload.includes(url));
 
   return (
     <>
-      <Tabs defaultValue={defaultTab} className="w-full">
-        <div className="flex justify-between items-center mb-6">
-            <div className="flex-1"/>
+      <Tabs defaultValue={defaultTab} value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <div className="flex justify-between items-center mb-6 gap-4">
+            <div className="flex-1 flex justify-start">
+               {(hasImages || hasVideos || hasAudios) && (
+                 <Button onClick={toggleSelectAll} variant="outline" size="sm">
+                    {isAllSelected ? <CheckSquare className="mr-2" /> : <Square className="mr-2" />}
+                    {isAllSelected ? 'Deseleccionar' : 'Seleccionar Todo'}
+                </Button>
+               )}
+            </div>
             <TabsList className="flex-shrink-0">
                 {hasImages && (
                     <TabsTrigger value="images">
@@ -233,24 +310,24 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
                         <Badge variant="secondary" className="ml-2">{videos.length}</Badge>
                     </TabsTrigger>
                 )}
-            </TabsList>
-            <div className="flex-1 flex justify-end">
-                {hasImages && (
-                    <Button onClick={toggleSelectAll} variant="outline">
-                        {selectedForDownload.length === images.length ? <CheckSquare className="mr-2" /> : <Square className="mr-2" />}
-                        {selectedForDownload.length === images.length ? 'Deseleccionar' : 'Seleccionar Todo'}
-                    </Button>
+                {hasAudios && (
+                    <TabsTrigger value="audios">
+                        <MusicIcon className="mr-2 h-4 w-4" />
+                        Audios
+                        <Badge variant="secondary" className="ml-2">{audios.length}</Badge>
+                    </TabsTrigger>
                 )}
-            </div>
+            </TabsList>
+            <div className="flex-1" />
         </div>
 
         {hasImages && (
-          <TabsContent value="images">
+          <TabsContent value="images" forceMount={true} className={cn(activeTab !== "images" && "hidden")}>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                   {visibleImages.map((url, index) => renderMediaItem(url, 'image', index))}
               </div>
-              <div ref={sentinelRef} className="h-10 w-full" />
-               {visibleImagesCount < images.length && (
+              <div ref={(el) => sentinels.images = el} className="h-10 w-full" />
+               {visibleCount.images < images.length && (
                  <div className="flex justify-center items-center py-4">
                     <LoaderCircle className="animate-spin text-primary" />
                  </div>
@@ -259,26 +336,64 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
         )}
 
         {hasVideos && (
-          <TabsContent value="videos">
+          <TabsContent value="videos" forceMount={true} className={cn(activeTab !== "videos" && "hidden")}>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {videos.map((url, index) => renderMediaItem(url, 'video', index))}
+                  {visibleVideos.map((url, index) => renderMediaItem(url, 'video', index))}
               </div>
+              <div ref={(el) => sentinels.videos = el} className="h-10 w-full" />
+               {visibleCount.videos < videos.length && (
+                 <div className="flex justify-center items-center py-4">
+                    <LoaderCircle className="animate-spin text-primary" />
+                 </div>
+               )}
+          </TabsContent>
+        )}
+
+         {hasAudios && (
+          <TabsContent value="audios" forceMount={true} className={cn(activeTab !== "audios" && "hidden")}>
+              <div className="flex flex-col gap-4">
+                  {visibleAudios.map((url, index) => renderMediaItem(url, 'audio', index))}
+              </div>
+               <div ref={(el) => sentinels.audios = el} className="h-10 w-full" />
+               {visibleCount.audios < audios.length && (
+                 <div className="flex justify-center items-center py-4">
+                    <LoaderCircle className="animate-spin text-primary" />
+                 </div>
+               )}
           </TabsContent>
         )}
       </Tabs>
       
-      {selectedImage !== null && (
+      {selectedMedia !== null && (
         <div 
             className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center animate-in fade-in"
             onClick={closeModal}
         >
           <div className="relative w-full h-full p-4 md:p-8" onClick={(e) => e.stopPropagation()}>
-            <Image
-                src={images[selectedImage]}
-                alt={`Selected image ${selectedImage + 1}`}
-                fill
-                className="object-contain"
-            />
+            {selectedMedia.type === 'image' ? (
+                <Image
+                    src={selectedMedia.url}
+                    alt={`Selected media ${selectedMediaIndex! + 1}`}
+                    fill
+                    className="object-contain"
+                />
+            ) : selectedMedia.type === 'video' ? (
+                <video
+                    src={selectedMedia.url}
+                    controls
+                    autoPlay
+                    className="max-h-full max-w-full m-auto"
+                />
+            ) : selectedMedia.type === 'audio' ? (
+                 <div className="flex items-center justify-center w-full h-full">
+                    <Card className="w-full max-w-md">
+                        <CardContent className="p-6 flex flex-col items-center gap-4">
+                            <MusicIcon className="w-24 h-24 text-primary" />
+                            <audio src={selectedMedia.url} controls autoPlay className="w-full" />
+                        </CardContent>
+                    </Card>
+                 </div>
+            ) : null}
           </div>
 
           <div className="absolute top-4 right-4 flex items-center gap-2">
@@ -287,7 +402,7 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
               size="icon"
               className="text-white hover:text-white hover:bg-white/10"
               onClick={(e) => { e.stopPropagation(); handleDownload(); }}
-              aria-label="Download image"
+              aria-label="Download media"
             >
               <Download className="h-8 w-8" />
             </Button>
@@ -302,14 +417,14 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
             </Button>
           </div>
 
-          {images.length > 1 && (
+          {allMedia.length > 1 && (
             <>
               <Button
                 variant="ghost"
                 size="icon"
                 className="absolute left-4 top-1/2 -translate-y-1/2 text-white hover:text-white hover:bg-white/10"
-                onClick={(e) => { e.stopPropagation(); showPrevImage(); }}
-                aria-label="Previous image"
+                onClick={(e) => { e.stopPropagation(); showPrev(); }}
+                aria-label="Previous media"
               >
                 <ChevronLeft className="h-10 w-10" />
               </Button>
@@ -317,8 +432,8 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
                 variant="ghost"
                 size="icon"
                 className="absolute right-4 top-1/2 -translate-y-1/2 text-white hover:text-white hover:bg-white/10"
-                onClick={(e) => { e.stopPropagation(); showNextImage(); }}
-                aria-label="Next image"
+                onClick={(e) => { e.stopPropagation(); showNext(); }}
+                aria-label="Next media"
               >
                 <ChevronRight className="h-10 w-10" />
               </Button>
@@ -332,7 +447,7 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
           <Card className="shadow-2xl">
             <CardContent className="p-4 flex items-center justify-between">
               <p className="font-medium text-sm">
-                <span className="font-bold text-primary">{selectedForDownload.length}</span> imágenes seleccionadas
+                <span className="font-bold text-primary">{selectedForDownload.length}</span> archivos seleccionados
               </p>
               <Button onClick={handleBulkDownload} disabled={isDownloading}>
                 {isDownloading ? (
@@ -350,3 +465,4 @@ export function MediaGallery({ images, videos }: MediaGalleryProps) {
   );
 }
 
+    
