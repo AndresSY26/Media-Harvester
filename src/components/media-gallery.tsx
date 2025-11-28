@@ -35,18 +35,18 @@ export function MediaGallery({ images, videos, audios }: MediaGalleryProps) {
   const sentinels = useRef<Record<string, HTMLDivElement | null>>({}).current;
 
   const allMedia: MediaItem[] = useMemo(() => [
-    ...images.map(url => ({ type: 'image' as const, url })),
-    ...videos.map(url => ({ type: 'video' as const, url })),
-    ...audios.map(url => ({ type: 'audio' as const, url })),
+    ...(images ?? []).map(url => ({ type: 'image' as const, url })),
+    ...(videos ?? []).map(url => ({ type: 'video' as const, url })),
+    ...(audios ?? []).map(url => ({ type: 'audio' as const, url })),
   ], [images, videos, audios]);
   
-  const visibleImages = images.slice(0, visibleCount.images);
-  const visibleVideos = videos.slice(0, visibleCount.videos);
-  const visibleAudios = audios.slice(0, visibleCount.audios);
+  const visibleImages = (images ?? []).slice(0, visibleCount.images);
+  const visibleVideos = (videos ?? []).slice(0, visibleCount.videos);
+  const visibleAudios = (audios ?? []).slice(0, visibleCount.audios);
 
-  const hasImages = images.length > 0;
-  const hasVideos = videos.length > 0;
-  const hasAudios = audios.length > 0;
+  const hasImages = images && images.length > 0;
+  const hasVideos = videos && videos.length > 0;
+  const hasAudios = audios && audios.length > 0;
   const defaultTab = hasImages ? "images" : hasVideos ? "videos" : "audios";
 
   useEffect(() => {
@@ -54,7 +54,7 @@ export function MediaGallery({ images, videos, audios }: MediaGalleryProps) {
   }, [defaultTab]);
 
   const loadMore = useCallback((type: 'images' | 'videos' | 'audios') => {
-    const mediaList = type === 'images' ? images : type === 'videos' ? videos : audios;
+    const mediaList = type === 'images' ? (images ?? []) : type === 'videos' ? (videos ?? []) : (audios ?? []);
     setVisibleCount(prev => ({
       ...prev,
       [type]: Math.min(prev[type] + BATCH_SIZE, mediaList.length)
@@ -65,7 +65,7 @@ export function MediaGallery({ images, videos, audios }: MediaGalleryProps) {
     Object.keys(observers).forEach(key => observers[key]?.disconnect());
 
     const createObserver = (type: 'images' | 'videos' | 'audios') => {
-      const mediaList = type === 'images' ? images : type === 'videos' ? videos : audios;
+      const mediaList = type === 'images' ? (images ?? []) : type === 'videos' ? (videos ?? []) : (audios ?? []);
       return new IntersectionObserver(entries => {
         if (entries[0].isIntersecting && visibleCount[type] < mediaList.length) {
           loadMore(type);
@@ -119,15 +119,11 @@ export function MediaGallery({ images, videos, audios }: MediaGalleryProps) {
   };
   
   const toggleSelectAll = () => {
-    const currentMediaUrls = activeTab === 'images' ? images : activeTab === 'videos' ? videos : audios;
-    const otherMediaUrls = 
-        activeTab === 'images' ? [...videos, ...audios] :
-        activeTab === 'videos' ? [...images, ...audios] :
-        [...images, ...videos];
+    const currentMediaUrls = activeTab === 'images' ? (images ?? []) : activeTab === 'videos' ? (videos ?? []) : (audios ?? []);
+    
+    const allSelectedInTab = currentMediaUrls.length > 0 && currentMediaUrls.every(url => selectedForDownload.includes(url));
 
-    const currentMediaSelected = currentMediaUrls.every(url => selectedForDownload.includes(url));
-
-    if (currentMediaSelected) {
+    if (allSelectedInTab) {
       // Deselect all media of the current tab
       setSelectedForDownload(prev => prev.filter(url => !currentMediaUrls.includes(url)));
     } else {
@@ -280,7 +276,7 @@ export function MediaGallery({ images, videos, audios }: MediaGalleryProps) {
       );
   }
   
-  const currentMediaUrls = activeTab === 'images' ? images : activeTab === 'videos' ? videos : audios;
+  const currentMediaUrls = activeTab === 'images' ? (images ?? []) : activeTab === 'videos' ? (videos ?? []) : (audios ?? []);
   const isAllSelected = currentMediaUrls.length > 0 && currentMediaUrls.every(url => selectedForDownload.includes(url));
 
   return (
@@ -327,7 +323,7 @@ export function MediaGallery({ images, videos, audios }: MediaGalleryProps) {
                   {visibleImages.map((url, index) => renderMediaItem(url, 'image', index))}
               </div>
               <div ref={(el) => sentinels.images = el} className="h-10 w-full" />
-               {visibleCount.images < images.length && (
+               {visibleCount.images < (images ?? []).length && (
                  <div className="flex justify-center items-center py-4">
                     <LoaderCircle className="animate-spin text-primary" />
                  </div>
@@ -341,7 +337,7 @@ export function MediaGallery({ images, videos, audios }: MediaGalleryProps) {
                   {visibleVideos.map((url, index) => renderMediaItem(url, 'video', index))}
               </div>
               <div ref={(el) => sentinels.videos = el} className="h-10 w-full" />
-               {visibleCount.videos < videos.length && (
+               {visibleCount.videos < (videos ?? []).length && (
                  <div className="flex justify-center items-center py-4">
                     <LoaderCircle className="animate-spin text-primary" />
                  </div>
@@ -355,7 +351,7 @@ export function MediaGallery({ images, videos, audios }: MediaGalleryProps) {
                   {visibleAudios.map((url, index) => renderMediaItem(url, 'audio', index))}
               </div>
                <div ref={(el) => sentinels.audios = el} className="h-10 w-full" />
-               {visibleCount.audios < audios.length && (
+               {visibleCount.audios < (audios ?? []).length && (
                  <div className="flex justify-center items-center py-4">
                     <LoaderCircle className="animate-spin text-primary" />
                  </div>

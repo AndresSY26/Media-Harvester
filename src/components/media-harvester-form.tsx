@@ -54,18 +54,18 @@ export function MediaHarvesterForm() {
     }
 
     if (state.data) {
-        if (state.data.images.length === 0 && state.data.videos.length === 0) {
+        if (!state.data.images?.length && !state.data.videos?.length && !state.data.audios?.length) {
             return (
                 <Card className="mt-8">
                     <CardContent className="flex flex-col items-center justify-center p-10 text-center">
                         <ImageOff className="w-16 h-16 text-muted-foreground mb-4"/>
                         <h3 className="text-xl font-semibold">No se encontraron medios</h3>
-                        <p className="text-muted-foreground">No se pudo extraer ninguna imagen o video de la URL proporcionada.</p>
+                        <p className="text-muted-foreground">No se pudo extraer ninguna imagen, video o audio de la URL proporcionada.</p>
                     </CardContent>
                 </Card>
             )
         }
-      return <MediaGallery images={state.data.images} videos={state.data.videos} />;
+      return <MediaGallery images={state.data.images} videos={state.data.videos} audios={state.data.audios} />;
     }
 
     return (
